@@ -37,7 +37,7 @@ async function checked<T>(promise: PromiseLike<{ data: T; error: unknown }>): Pr
 async function dashboard() {
   const [people, aliases, messages, checks, students, teachers] = await Promise.all([
     checked(admin.from('david_participants').select('id,kind,source_id,display_name,active').order('display_name')),
-    checked(admin.from('david_aliases').select('alias,participant_id')),
+    checked(admin.from('david_aliases').select('room,alias,participant_id')),
     checked(admin.from('david_messages').select('fingerprint,room,sender,sent_at,assigned_date,media_kind,excerpt,participant_id').order('sent_at')),
     checked(admin.from('david_checks').select('participant_id,day,qt_done,exercise_done,note,updated_at')),
     checked(admin.from('students').select('id,display_name').order('display_name')),
@@ -45,7 +45,7 @@ async function dashboard() {
   ])
   return {
     participants: (people as any[]).map(p => ({ id: p.id, kind: p.kind, sourceId: p.source_id, name: p.display_name, active: p.active })),
-    aliases: (aliases as any[]).map(a => ({ alias: a.alias, participantId: a.participant_id })),
+    aliases: (aliases as any[]).map(a => ({ room: a.room, alias: a.alias, participantId: a.participant_id })),
     messages: (messages as any[]).map(m => ({ fingerprint: m.fingerprint.trim(), room: m.room, sender: m.sender, sentAt: m.sent_at, assignedDate: m.assigned_date, mediaKind: m.media_kind, excerpt: m.excerpt, participantId: m.participant_id })),
     checks: (checks as any[]).map(c => ({ participantId: c.participant_id, date: c.day, qtDone: c.qt_done, exerciseDone: c.exercise_done, note: c.note, updatedAt: c.updated_at })),
     catalog: [...(students as any[]).map(s => ({ id: s.id, name: s.display_name, kind: 'student' })), ...(teachers as any[]).map(t => ({ id: t.id, name: t.display_name, kind: 'teacher' }))],
@@ -53,11 +53,11 @@ async function dashboard() {
 }
 async function importMessages(body: Body) {
   if (!Array.isArray(body.messages) || body.messages.length > 500) throw new Error('한 번에 500건 이하만 가져올 수 있습니다.')
-  const aliases = await checked(admin.from('david_aliases').select('alias,participant_id')) as any[]
-  const map = new Map(aliases.map(a => [a.alias, a.participant_id]))
+  const aliases = await checked(admin.from('david_aliases').select('room,alias,participant_id')) as any[]
+  const map = new Map(aliases.map(a => [`${a.room}\u001f${a.alias}`, a.participant_id]))
   const rows = body.messages.map((m: any) => {
     if (!m || typeof m.fingerprint !== 'string' || !/^[0-9a-f]{64}$/.test(m.fingerprint) || !validDay(m.assignedDate) || !exactString(m.room, 80) || !exactString(m.sender, 60) || !['photo', 'video', 'text'].includes(m.mediaKind) || typeof m.excerpt !== 'string' || m.excerpt.length > 180 || Number.isNaN(Date.parse(m.sentAt))) throw new Error('대화 파일 형식이 올바르지 않습니다.')
-    return { fingerprint: m.fingerprint, room: m.room, sender: m.sender, sent_at: m.sentAt, assigned_date: m.assignedDate, media_kind: m.mediaKind, excerpt: m.excerpt, participant_id: map.get(m.sender) ?? null }
+    return { fingerprint: m.fingerprint, room: m.room, sender: m.sender, sent_at: m.sentAt, assigned_date: m.assignedDate, media_kind: m.mediaKind, excerpt: m.excerpt, participant_id: map.get(`${m.room}\u001f${m.sender}`) ?? map.get(`*\u001f${m.sender}`) ?? null }
   })
   if (rows.length) await checked(admin.from('david_messages').upsert(rows, { onConflict: 'fingerprint', ignoreDuplicates: true }))
   return { received: rows.length }
@@ -70,13 +70,13 @@ async function saveCheck(body: Body) {
   return { ok: true }
 }
 async function linkAlias(body: Body) {
-  if (!exactString(body.alias, 60) || !uuid(body.sourceId) || !['student', 'teacher'].includes(String(body.kind))) throw new Error('이름 연결 값이 올바르지 않습니다.')
+  if (!exactString(body.alias, 60) || !exactString(body.room, 80) || !uuid(body.sourceId) || !['student', 'teacher'].includes(String(body.kind))) throw new Error('이름 연결 값이 올바르지 않습니다.')
   const table = body.kind === 'student' ? 'students' : 'profiles'
   const { data: source } = await admin.from(table).select('id,display_name').eq('id', body.sourceId).single()
   if (!source) throw new Error('기존 명단에서 해당 인원을 찾지 못했습니다.')
   const participant = await checked(admin.from('david_participants').upsert({ kind: body.kind, source_id: source.id, display_name: source.display_name }, { onConflict: 'kind,source_id' }).select('id').single()) as any
-  await checked(admin.from('david_aliases').upsert({ alias: body.alias, participant_id: participant.id }, { onConflict: 'alias' }))
-  await checked(admin.from('david_messages').update({ participant_id: participant.id }).eq('sender', body.alias))
+  await checked(admin.from('david_aliases').upsert({ room: body.room, alias: body.alias, participant_id: participant.id }, { onConflict: 'room,alias' }))
+  await checked(admin.from('david_messages').update({ participant_id: participant.id }).eq('room', body.room).eq('sender', body.alias))
   return { ok: true }
 }
 async function moveMessage(body: Body) {

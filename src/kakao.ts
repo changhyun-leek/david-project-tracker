@@ -33,7 +33,7 @@ export function parseKakao(content: string): ParsedMessage[] {
   return result.map(item => {
     const text = item.excerpt.trim()
     const mediaKind: MediaKind = /^사진(?: \d+장)?$/.test(text) ? 'photo' : /^동영상(?: \d+개)?$/.test(text) ? 'video' : 'text'
-    return { ...item, mediaKind, excerpt: text.slice(0, 180) }
+    return { ...item, mediaKind, excerpt: text }
   })
 }
 
@@ -46,6 +46,6 @@ export async function fingerprintMessages(messages: ParsedMessage[]): Promise<Ev
     repetitions.set(base, occurrence + 1)
     const bytes = await crypto.subtle.digest('SHA-256', encoder.encode(`${base}\u001f${occurrence}`))
     const fingerprint = Array.from(new Uint8Array(bytes)).map(x => x.toString(16).padStart(2, '0')).join('')
-    return { ...message, fingerprint, participantId: null }
+    return { ...message, excerpt: message.excerpt.slice(0, 180), fingerprint, participantId: null }
   }))
 }

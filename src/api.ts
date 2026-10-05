@@ -30,6 +30,6 @@ export const api = {
   dashboard(): Promise<Dashboard> { return invoke('david-tracker', 'dashboard') },
   import(messages: Evidence[]): Promise<{ received: number }> { return invoke('david-tracker', 'import', { messages }) },
   saveCheck(check: DailyCheck): Promise<{ ok: true }> { return invoke('david-tracker', 'save-check', check) },
-  linkAlias(alias: string, kind: Kind, sourceId: string): Promise<{ ok: true }> { return invoke('david-tracker', 'link-alias', { alias, kind, sourceId }) },
+  linkAlias(alias: string, room: string, kind: Kind, sourceId: string): Promise<{ ok: true }> { return invoke('david-tracker', 'link-alias', { alias, room, kind, sourceId }) },
   moveMessage(fingerprint: string, date: string): Promise<{ ok: true }> { return invoke('david-tracker', 'move-message', { fingerprint, date }) },
 }

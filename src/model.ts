@@ -1,7 +1,7 @@
 export type Kind = 'student' | 'teacher'
 export type MediaKind = 'photo' | 'video' | 'text'
 export type Participant = { id: string; kind: Kind; sourceId: string; name: string; active: boolean }
-export type Alias = { alias: string; participantId: string }
+export type Alias = { room: string; alias: string; participantId: string }
 export type Evidence = { fingerprint: string; room: string; sender: string; sentAt: string; assignedDate: string; mediaKind: MediaKind; excerpt: string; participantId: string | null }
 export type DailyCheck = { participantId: string; date: string; qtDone: boolean; exerciseDone: boolean; note: string; updatedAt?: string }
 export type CatalogPerson = { id: string; name: string; kind: Kind }
