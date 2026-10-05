@@ -12,6 +12,10 @@
 
 앱은 대화 원본 파일과 첨부 미디어를 서버에 보관하지 않습니다. 게시물 종류·시각·최대 180자의 표시 내용만 저장합니다. 기존 출석 기록은 읽거나 수정하지 않습니다.
 
+## Windows 바탕화면 바로가기
+
+`scripts/install-desktop-shortcut.ps1`을 실행하면 바탕화면에 `다윗 프로젝트 진행관리` 바로가기가 생깁니다. Chrome의 앱 창으로 열리며, 기존 Chrome 기본 프로필의 로그인 상태를 사용합니다. 전용 아이콘은 `%LOCALAPPDATA%\DavidProjectTracker\david.ico`에 저장됩니다.
+
 ## 개발
 
 ```powershell
