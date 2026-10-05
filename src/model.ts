@@ -16,12 +16,20 @@ export const dates = Array.from({ length: 28 }, (_, n) => {
 export function todayKst(now = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
 }
+export function currentProjectDay(now = new Date()): string {
+  const day = todayKst(now)
+  const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', hourCycle: 'h23' }).format(now))
+  if (hour >= 4) return day
+  const previous = new Date(`${day}T12:00:00Z`)
+  previous.setUTCDate(previous.getUTCDate() - 1)
+  return previous.toISOString().slice(0, 10)
+}
 export function status(check: DailyCheck | undefined, evidenceCount: number): 'complete' | 'partial' | 'review' | 'unposted' {
   if (check?.qtDone && check.exerciseDone) return 'complete'
   if (check?.qtDone || check?.exerciseDone) return 'partial'
   return evidenceCount ? 'review' : 'unposted'
 }
-export function statusLabel(state: ReturnType<typeof status>, day: string, today = todayKst()): string {
+export function statusLabel(state: ReturnType<typeof status>, day: string, today = currentProjectDay()): string {
   if (state !== 'unposted') return { complete: '완료', partial: '일부 완료', review: '확인 필요' }[state]
   return day > today ? '예정' : day === today ? '진행 중' : '미게시'
 }

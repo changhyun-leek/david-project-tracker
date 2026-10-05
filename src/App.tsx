@@ -3,7 +3,7 @@ import { CalendarDays, Check, ChevronLeft, ChevronRight, Download, FileUp, LogOu
 import { api } from './api'
 import { downloadExcel } from './export'
 import { fingerprintMessages, parseKakao } from './kakao'
-import { dates, status, statusLabel, todayKst, type CatalogPerson, type DailyCheck, type Dashboard, type Participant } from './model'
+import { dates, status, statusLabel, currentProjectDay, type CatalogPerson, type DailyCheck, type Dashboard, type Participant } from './model'
 
 const mediaLabels = { photo: '사진', video: '동영상', text: '글' }
 function dateLabel(date: string) { return `${Number(date.slice(5, 7))}월 ${Number(date.slice(8, 10))}일` }
@@ -15,7 +15,7 @@ export function App() {
   const [data, setData] = useState<Dashboard | null>(null)
   const [signedIn, setSignedIn] = useState(false)
   const [pin, setPin] = useState('')
-  const [day, setDay] = useState(() => dates.includes(todayKst()) ? todayKst() : todayKst() > dates[27] ? dates[27] : dates[0])
+  const [day, setDay] = useState(() => dates.includes(currentProjectDay()) ? currentProjectDay() : currentProjectDay() > dates[27] ? dates[27] : dates[0])
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [filter, setFilter] = useState<'all' | 'student' | 'teacher'>('all')
