@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CalendarDays, Check, ChevronLeft, ChevronRight, Download, FileUp, LogOut, RefreshCw, ShieldCheck } from 'lucide-react'
+import { CalendarDays, Check, CheckCheck, ChevronLeft, ChevronRight, Download, FileUp, LogOut, RefreshCw, ShieldCheck } from 'lucide-react'
 import { api } from './api'
 import { downloadExcel } from './export'
+import { Member, forgetMember, rememberedMember, rememberMember } from './Member'
 import { fingerprintMessages, parseKakao } from './kakao'
-import { dates, status, statusLabel, currentProjectDay, type CatalogPerson, type DailyCheck, type Dashboard, type Participant } from './model'
+import { dates, isConfirmed, status, statusLabel, suggestion, currentProjectDay, type CatalogPerson, type DailyCheck, type Dashboard, type Participant } from './model'
 
 const mediaLabels = { photo: '사진', video: '동영상', text: '글' }
 function dateLabel(date: string) { return `${Number(date.slice(5, 7))}월 ${Number(date.slice(8, 10))}일` }
 function displayTime(iso: string) { return new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(iso)) }
 function findCheck(data: Dashboard, personId: string, date: string) { return data.checks.find(c => c.participantId === personId && c.date === date) }
 function countFor(data: Dashboard, personId: string, date: string) { return data.messages.filter(m => m.participantId === personId && m.assignedDate === date).length }
+function kindsFor(data: Dashboard, personId: string, date: string) { return data.messages.filter(m => m.participantId === personId && m.assignedDate === date).map(m => m.mediaKind) }
+const fromLabel = { photo: '사진', video: '영상', self: '본인', '': '' }
 
 export function App() {
   const [data, setData] = useState<Dashboard | null>(null)
@@ -22,6 +25,7 @@ export function App() {
   const [query, setQuery] = useState('')
   const [aliasChoice, setAliasChoice] = useState<Record<string, string>>({})
   const [view, setView] = useState<'today' | 'people' | 'evidence'>('today')
+  const [member, setMember] = useState<string | null>(() => rememberedMember())
 
   async function load() { setData(await api.dashboard()) }
   useEffect(() => {
@@ -31,8 +35,11 @@ export function App() {
     setBusy(true); setMessage('')
     try { await task() } catch (e) { setMessage(e instanceof Error ? e.message : '작업에 실패했습니다.') } finally { setBusy(false) }
   }
+  // 숫자만 넣으면 관리자 PIN으로 로그인하고, 그 밖에는 참가자 이름으로 들어간다.
   async function login() {
-    await run(async () => { await api.login(pin); await load(); setSignedIn(true); setPin('') })
+    const value = pin.trim()
+    if (/^\d+$/.test(value)) await run(async () => { await api.login(value); await load(); setSignedIn(true); setPin('') })
+    else await run(async () => { await api.memberView(value); rememberMember(value); setMember(value); setPin('') })
   }
   async function importFile(file?: File) {
     if (!file) return
@@ -50,8 +57,24 @@ export function App() {
   async function updateCheck(person: Participant, patch: Partial<DailyCheck>) {
     if (!data) return
     const old = findCheck(data, person.id, day)
-    const next: DailyCheck = { participantId: person.id, date: day, qtDone: old?.qtDone ?? false, exerciseDone: old?.exerciseDone ?? false, note: old?.note ?? '', ...patch }
+    const confirmed = isConfirmed(old)
+    const auto = suggestion(old, kindsFor(data, person.id, day))
+    // 미확정 카드에서 말씀·운동을 누르면 자동 판정에서 출발해 카드 전체를 확정한다. 메모만 쓰면 확정하지 않는다.
+    const base = confirmed ? { qtDone: old!.qtDone, exerciseDone: old!.exerciseDone } : { qtDone: auto.qt, exerciseDone: auto.exercise }
+    const confirming = confirmed || 'qtDone' in patch || 'exerciseDone' in patch || patch.confirmed === true
+    const next: DailyCheck = { participantId: person.id, date: day, ...(confirming ? base : { qtDone: false, exerciseDone: false }), note: old?.note ?? '', ...patch, confirmed: confirming }
     await run(async () => { await api.saveCheck(next); await load() })
+  }
+  async function confirmAll() {
+    if (!data) return
+    const targets = people.filter(p => !isConfirmed(findCheck(data, p.id, day)))
+      .map(p => ({ p, old: findCheck(data, p.id, day), auto: suggestion(findCheck(data, p.id, day), kindsFor(data, p.id, day)) }))
+      .filter(t => t.auto.qt || t.auto.exercise)
+    if (!targets.length) { setMessage('확정할 자동 판정이 없습니다.'); return }
+    await run(async () => {
+      for (const t of targets) await api.saveCheck({ participantId: t.p.id, date: day, qtDone: t.auto.qt, exerciseDone: t.auto.exercise, note: t.old?.note ?? '', confirmed: true })
+      await load(); setMessage(`${dateLabel(day)} 자동 판정 ${targets.length}명을 확정했습니다.`)
+    })
   }
   async function link(alias: string, room: string) {
     const choice = aliasChoice[`${room}\u001f${alias}`]
@@ -67,7 +90,9 @@ export function App() {
   }, [data, day])
   const dayIndex = dates.indexOf(day)
 
-  if (!signedIn) return <main className="login-shell"><section className="login-card"><div className="logo-mark">D</div><p className="eyebrow">새벽이슬 청소년부</p><h1>다윗 프로젝트<br />진행관리</h1><p className="muted">28일의 작은 실천을 한눈에 확인합니다.</p><form onSubmit={e => { e.preventDefault(); void login() }}><label htmlFor="pin">기존 출석 앱 PIN</label><input id="pin" type="password" inputMode="numeric" autoComplete="current-password" value={pin} onChange={e => setPin(e.target.value)} placeholder="PIN 입력" required /><button className="primary" disabled={busy}>관리자 로그인</button></form>{message && <p className="notice error">{message}</p>}<p className="privacy"><ShieldCheck size={16} /> 지정된 관리자 계정만 접속할 수 있습니다.</p></section></main>
+  if (!signedIn && member) return <Member name={member} onLeave={() => { forgetMember(); setMember(null) }} />
+
+  if (!signedIn) return <main className="login-shell"><section className="login-card"><div className="logo-mark">D</div><p className="eyebrow">새벽이슬 청소년부</p><h1>다윗 프로젝트<br />진행관리</h1><p className="muted">이름을 입력하면 내 기록과 순위를 볼 수 있어요.</p><form onSubmit={e => { e.preventDefault(); void login() }}><label htmlFor="pin">이름</label><input id="pin" type="text" autoComplete="off" value={pin} onChange={e => setPin(e.target.value)} placeholder="예: 김민찬" required /><button className="primary" disabled={busy}>들어가기</button></form>{message && <p className="notice error">{message}</p>}<p className="privacy"><ShieldCheck size={16} /> 순위에는 선생님이 확인한 기록만 들어갑니다.</p></section></main>
 
   if (!data) return <main className="loading">진행 현황을 불러오는 중입니다.</main>
 
@@ -77,8 +102,8 @@ export function App() {
     {message && <div className="notice" role="status">{message}<button onClick={() => setMessage('')}>닫기</button></div>}
     <section className="intro"><div><span className="intro-label">28 DAYS OF GROWTH</span><h2>하루하루, 다시 시작하는 힘</h2><p>말씀과 운동을 각각 확인하세요. 오전 4시 전 게시물은 전날로 묶이며, 날짜는 언제든 바꿀 수 있습니다.</p></div><div className="intro-number"><strong>{data.participants.filter(p => p.active).length}</strong><span>함께하는 사람</span></div></section>
     {unresolved.length > 0 && <section className="unresolved"><h3>이름 확인 필요 <b>{unresolved.length}</b></h3><p>기존 학생·교사 명단에서 사람을 선택하면 같은 톡방의 이전 게시물도 함께 연결됩니다.</p>{unresolved.map(({ room, sender }) => { const id = `${room}\u001f${sender}`; return <div className="alias-row" key={id}><strong>{sender}<small>{room}</small></strong><select value={aliasChoice[id] ?? ''} onChange={e => setAliasChoice({ ...aliasChoice, [id]: e.target.value })}><option value="">명단에서 선택</option>{data.catalog.map(p => <option key={`${p.kind}:${p.id}`} value={`${p.kind}:${p.id}`}>{p.name} · {p.kind === 'student' ? '학생' : '교사'}</option>)}</select><button onClick={() => void link(sender, room)} disabled={!aliasChoice[id] || busy}>연결</button></div> })}</section>}
-    {view === 'today' && <><section className="date-panel"><button aria-label="이전 날짜" disabled={dayIndex === 0} onClick={() => setDay(dates[dayIndex - 1])}><ChevronLeft /></button><div><span>DAY {dayIndex + 1} / 28</span><strong>{dateLabel(day)}</strong></div><button aria-label="다음 날짜" disabled={dayIndex === 27} onClick={() => setDay(dates[dayIndex + 1])}><ChevronRight /></button><input aria-label="날짜 선택" type="date" min={dates[0]} max={dates[27]} value={day} onChange={e => { if (dates.includes(e.target.value)) setDay(e.target.value) }} /></section><section className="stat-grid"><div className="stat complete"><span>완료</span><strong>{totals.complete}</strong></div><div className="stat partial"><span>일부 완료</span><strong>{totals.partial}</strong></div><div className="stat review"><span>확인 필요</span><strong>{totals.review}</strong></div><div className="stat unposted"><span>{statusLabel('unposted', day)}</span><strong>{totals.unposted}</strong></div></section><div className="section-head"><div><h2>참가자 체크</h2><p>사진·동영상 표시만으로 완료 처리하지 않습니다.</p></div><div className="filters"><select value={filter} onChange={e => setFilter(e.target.value as typeof filter)}><option value="all">전체</option><option value="student">학생</option><option value="teacher">교사</option></select><input placeholder="이름 검색" value={query} onChange={e => setQuery(e.target.value)} /></div></div><section className="people-grid">{people.map(p => { const c = findCheck(data, p.id, day); const count = countFor(data, p.id, day); const state = status(c, count); return <article className="person-card" key={p.id}><div className="person-top"><div className="avatar">{p.name[0]}</div><div><h3>{p.name}</h3><span>{p.kind === 'student' ? '학생' : '교사'} · 게시물 {count}건</span></div><b className={`badge ${state}`}>{statusLabel(state, day)}</b></div><div className="check-row"><button className={c?.qtDone ? 'checked' : ''} disabled={busy} onClick={() => void updateCheck(p, { qtDone: !c?.qtDone })}><Check size={16} /> 말씀 {c?.qtDone ? '완료' : '확인'}</button><button className={c?.exerciseDone ? 'checked' : ''} disabled={busy} onClick={() => void updateCheck(p, { exerciseDone: !c?.exerciseDone })}><Check size={16} /> 운동 {c?.exerciseDone ? '완료' : '확인'}</button></div><input className="note" key={`${p.id}:${day}:${c?.updatedAt ?? ''}`} defaultValue={c?.note ?? ''} placeholder="관리자 메모 (입력 후 포커스 이동으로 저장)" onBlur={e => { if (e.target.value !== (c?.note ?? '')) void updateCheck(p, { note: e.target.value }) }} /></article> })}</section></>}
-    {view === 'people' && <><div className="section-head"><div><h2>28일 전체 현황</h2><p>이름을 눌러 날짜별 상태를 확인하고 수정할 수 있습니다.</p></div><div className="filters"><select value={filter} onChange={e => setFilter(e.target.value as typeof filter)}><option value="all">전체</option><option value="student">학생만</option><option value="teacher">교사만</option></select><input placeholder="이름 검색" value={query} onChange={e => setQuery(e.target.value)} /></div></div><section className="progress-list">{people.map(p => { const completed = dates.filter(d => { const c = findCheck(data, p.id, d); return c?.qtDone && c.exerciseDone }).length; return <article key={p.id}><div className="progress-person"><strong>{p.name}</strong><small>{p.kind === 'student' ? '학생' : '교사'}</small><b>{completed} / 28일</b></div><div className="progress-track"><div style={{ width: `${completed / 28 * 100}%` }} /></div><div className="day-dots">{dates.map((d, i) => <button key={d} title={`${dateLabel(d)} · ${statusLabel(status(findCheck(data, p.id, d), countFor(data, p.id, d)), d)}`} className={status(findCheck(data, p.id, d), countFor(data, p.id, d))} onClick={() => { setDay(d); setView('today') }}>{i + 1}</button>)}</div></article> })}</section></>}
+    {view === 'today' && <><section className="date-panel"><button aria-label="이전 날짜" disabled={dayIndex === 0} onClick={() => setDay(dates[dayIndex - 1])}><ChevronLeft /></button><div><span>DAY {dayIndex + 1} / 28</span><strong>{dateLabel(day)}</strong></div><button aria-label="다음 날짜" disabled={dayIndex === 27} onClick={() => setDay(dates[dayIndex + 1])}><ChevronRight /></button><input aria-label="날짜 선택" type="date" min={dates[0]} max={dates[27]} value={day} onChange={e => { if (dates.includes(e.target.value)) setDay(e.target.value) }} /></section><section className="stat-grid"><div className="stat complete"><span>완료</span><strong>{totals.complete}</strong></div><div className="stat partial"><span>일부 완료</span><strong>{totals.partial}</strong></div><div className="stat review"><span>확인 필요</span><strong>{totals.review}</strong></div><div className="stat unposted"><span>{statusLabel('unposted', day)}</span><strong>{totals.unposted}</strong></div></section><div className="section-head"><div><h2>참가자 체크</h2><p>사진은 말씀, 영상은 운동으로 자동 표시됩니다. 카톡에서 보고 맞으면 확정하세요.</p></div><div className="filters"><button className="outline" disabled={busy} onClick={() => void confirmAll()}><CheckCheck size={16} /> 자동 판정 모두 확정</button><select value={filter} onChange={e => setFilter(e.target.value as typeof filter)}><option value="all">전체</option><option value="student">학생</option><option value="teacher">교사</option></select><input placeholder="이름 검색" value={query} onChange={e => setQuery(e.target.value)} /></div></div><section className="people-grid">{people.map(p => { const c = findCheck(data, p.id, day); const count = countFor(data, p.id, day); const state = status(c, count); const confirmed = isConfirmed(c); const auto = suggestion(c, kindsFor(data, p.id, day)); const qt = confirmed ? c!.qtDone : auto.qt; const ex = confirmed ? c!.exerciseDone : auto.exercise; return <article className="person-card" key={p.id}><div className="person-top"><div className="avatar">{p.name[0]}</div><div><h3>{p.name}</h3><span>{p.kind === 'student' ? '학생' : '교사'} · 게시물 {count}건</span></div><b className={`badge ${state}`}>{statusLabel(state, day)}</b></div><div className="check-row"><button className={qt ? (confirmed ? 'checked' : 'auto') : ''} disabled={busy} onClick={() => void updateCheck(p, { qtDone: !qt })}><Check size={16} /> 말씀 {qt ? (confirmed ? '완료' : `(${fromLabel[auto.qtFrom]})`) : '확인'}</button><button className={ex ? (confirmed ? 'checked' : 'auto') : ''} disabled={busy} onClick={() => void updateCheck(p, { exerciseDone: !ex })}><Check size={16} /> 운동 {ex ? (confirmed ? '완료' : `(${fromLabel[auto.exerciseFrom]})`) : '확인'}</button></div>{!confirmed && (auto.qt || auto.exercise) && <button className="confirm-one" disabled={busy} onClick={() => void updateCheck(p, { confirmed: true })}><CheckCheck size={15} /> 이대로 확정</button>}<input className="note" key={`${p.id}:${day}:${c?.updatedAt ?? ''}`} defaultValue={c?.note ?? ''} placeholder="관리자 메모 (입력 후 포커스 이동으로 저장)" onBlur={e => { if (e.target.value !== (c?.note ?? '')) void updateCheck(p, { note: e.target.value }) }} /></article> })}</section></>}
+    {view === 'people' && <><div className="section-head"><div><h2>28일 전체 현황</h2><p>이름을 눌러 날짜별 상태를 확인하고 수정할 수 있습니다.</p></div><div className="filters"><select value={filter} onChange={e => setFilter(e.target.value as typeof filter)}><option value="all">전체</option><option value="student">학생만</option><option value="teacher">교사만</option></select><input placeholder="이름 검색" value={query} onChange={e => setQuery(e.target.value)} /></div></div><section className="progress-list">{people.map(p => { const completed = dates.filter(d => { const c = findCheck(data, p.id, d); return isConfirmed(c) && c!.qtDone && c!.exerciseDone }).length; return <article key={p.id}><div className="progress-person"><strong>{p.name}</strong><small>{p.kind === 'student' ? '학생' : '교사'}</small><b>{completed} / 28일</b></div><div className="progress-track"><div style={{ width: `${completed / 28 * 100}%` }} /></div><div className="day-dots">{dates.map((d, i) => <button key={d} title={`${dateLabel(d)} · ${statusLabel(status(findCheck(data, p.id, d), countFor(data, p.id, d)), d)}`} className={status(findCheck(data, p.id, d), countFor(data, p.id, d))} onClick={() => { setDay(d); setView('today') }}>{i + 1}</button>)}</div></article> })}</section></>}
     {view === 'evidence' && <>
       <div className="section-head"><div><h2>가져온 게시물</h2><p>이름 연결과 적용 날짜를 직접 수정할 수 있습니다.</p></div><button className="outline" onClick={() => void run(load)}><RefreshCw size={16} /> 새로고침</button></div>
       <section className="evidence-list">{[...data.messages].reverse().map(m => {

@@ -1,6 +1,6 @@
 import { zipSync, strToU8 } from 'fflate'
 import type { Dashboard } from './model'
-import { dates, status, statusLabel } from './model'
+import { dates, isConfirmed, status, statusLabel } from './model'
 
 type Cell = string | number
 type Sheet = { name: string; rows: Cell[][] }
@@ -34,14 +34,15 @@ export function buildWorkbook(data: Dashboard): Uint8Array {
   for (const p of data.participants.filter(p => p.active)) {
     let completed = 0, qt = 0, exercise = 0, posted = 0
     for (const date of dates) {
-      const check = data.checks.find(c => c.participantId === p.id && c.date === date)
+      const raw = data.checks.find(c => c.participantId === p.id && c.date === date)
+      const check = isConfirmed(raw) ? raw : undefined
       const count = data.messages.filter(m => m.participantId === p.id && m.assignedDate === date).length
       if (check?.qtDone && check.exerciseDone) completed++
       if (check?.qtDone) qt++
       if (check?.exerciseDone) exercise++
       if (count) posted++
-      const state = status(check, count)
-      daily.push([date, p.name, p.kind === 'student' ? '학생' : '교사', statusLabel(state, date), check?.qtDone ? '예' : '아니요', check?.exerciseDone ? '예' : '아니요', count, check?.note ?? '', check?.updatedAt ?? ''])
+      const state = status(raw, count)
+      daily.push([date, p.name, p.kind === 'student' ? '학생' : '교사', statusLabel(state, date), check?.qtDone ? '예' : '아니요', check?.exerciseDone ? '예' : '아니요', count, raw?.note ?? '', raw?.updatedAt ?? ''])
     }
     summary.push([p.name, p.kind === 'student' ? '학생' : '교사', completed, qt, exercise, posted, Math.round(completed / 28 * 1000) / 10])
   }

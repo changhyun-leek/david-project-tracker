@@ -1,5 +1,5 @@
 import { createClient, FunctionsHttpError } from '@supabase/supabase-js'
-import type { Dashboard, DailyCheck, Evidence, Kind } from './model'
+import type { Dashboard, DailyCheck, Evidence, Kind, MemberView } from './model'
 
 const url = import.meta.env.VITE_SUPABASE_URL ?? 'https://zzavmguguvuqgdblmkcj.supabase.co'
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? 'sb_publishable_VY0sNxSFQgHMSItmR5q5pw_4tpdrxWb'
@@ -31,5 +31,7 @@ export const api = {
   import(messages: Evidence[]): Promise<{ received: number }> { return invoke('david-tracker', 'import', { messages }) },
   saveCheck(check: DailyCheck): Promise<{ ok: true }> { return invoke('david-tracker', 'save-check', check) },
   linkAlias(alias: string, room: string, kind: Kind, sourceId: string): Promise<{ ok: true }> { return invoke('david-tracker', 'link-alias', { alias, room, kind, sourceId }) },
+  memberView(name: string): Promise<MemberView> { return invoke('david-tracker', 'member-view', { name }) },
+  memberCheck(name: string, date: string, selfQt: boolean, selfExercise: boolean): Promise<{ ok: true }> { return invoke('david-tracker', 'member-check', { name, date, selfQt, selfExercise }) },
   moveMessage(fingerprint: string, date: string): Promise<{ ok: true }> { return invoke('david-tracker', 'move-message', { fingerprint, date }) },
 }

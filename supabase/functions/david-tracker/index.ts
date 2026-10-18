@@ -39,7 +39,7 @@ async function dashboard() {
     checked(admin.from('david_participants').select('id,kind,source_id,display_name,active').order('display_name')),
     checked(admin.from('david_aliases').select('room,alias,participant_id')),
     checked(admin.from('david_messages').select('fingerprint,room,sender,sent_at,assigned_date,media_kind,excerpt,participant_id').order('sent_at')),
-    checked(admin.from('david_checks').select('participant_id,day,qt_done,exercise_done,note,updated_at')),
+    checked(admin.from('david_checks').select('participant_id,day,qt_done,exercise_done,confirmed,self_qt,self_exercise,note,updated_at')),
     checked(admin.from('students').select('id,display_name').order('display_name')),
     checked(admin.from('profiles').select('id,display_name,active').eq('active', true).order('display_name')),
   ])
@@ -47,7 +47,7 @@ async function dashboard() {
     participants: (people as any[]).map(p => ({ id: p.id, kind: p.kind, sourceId: p.source_id, name: p.display_name, active: p.active })),
     aliases: (aliases as any[]).map(a => ({ room: a.room, alias: a.alias, participantId: a.participant_id })),
     messages: (messages as any[]).map(m => ({ fingerprint: m.fingerprint.trim(), room: m.room, sender: m.sender, sentAt: m.sent_at, assignedDate: m.assigned_date, mediaKind: m.media_kind, excerpt: m.excerpt, participantId: m.participant_id })),
-    checks: (checks as any[]).map(c => ({ participantId: c.participant_id, date: c.day, qtDone: c.qt_done, exerciseDone: c.exercise_done, note: c.note, updatedAt: c.updated_at })),
+    checks: (checks as any[]).map(c => ({ participantId: c.participant_id, date: c.day, qtDone: c.qt_done, exerciseDone: c.exercise_done, confirmed: c.confirmed, selfQt: c.self_qt, selfExercise: c.self_exercise, note: c.note, updatedAt: c.updated_at })),
     catalog: [...(students as any[]).map(s => ({ id: s.id, name: s.display_name, kind: 'student' })), ...(teachers as any[]).map(t => ({ id: t.id, name: t.display_name, kind: 'teacher' }))],
   }
 }
@@ -63,10 +63,10 @@ async function importMessages(body: Body) {
   return { received: rows.length }
 }
 async function saveCheck(body: Body) {
-  if (!uuid(body.participantId) || !validDay(body.date) || typeof body.qtDone !== 'boolean' || typeof body.exerciseDone !== 'boolean' || typeof body.note !== 'string' || body.note.length > 300) throw new Error('확인 값이 올바르지 않습니다.')
+  if (!uuid(body.participantId) || !validDay(body.date) || typeof body.qtDone !== 'boolean' || typeof body.exerciseDone !== 'boolean' || typeof body.confirmed !== 'boolean' || typeof body.note !== 'string' || body.note.length > 300) throw new Error('확인 값이 올바르지 않습니다.')
   const { data: person } = await admin.from('david_participants').select('id').eq('id', body.participantId).single()
   if (!person) throw new Error('참가자를 찾을 수 없습니다.')
-  await checked(admin.from('david_checks').upsert({ participant_id: body.participantId, day: body.date, qt_done: body.qtDone, exercise_done: body.exerciseDone, note: body.note, updated_by: managerId, updated_at: new Date().toISOString() }, { onConflict: 'participant_id,day' }))
+  await checked(admin.from('david_checks').upsert({ participant_id: body.participantId, day: body.date, qt_done: body.qtDone, exercise_done: body.exerciseDone, confirmed: body.confirmed, note: body.note, updated_by: managerId, updated_at: new Date().toISOString() }, { onConflict: 'participant_id,day' }))
   return { ok: true }
 }
 async function linkAlias(body: Body) {
@@ -85,13 +85,70 @@ async function moveMessage(body: Body) {
   return { ok: true }
 }
 
+function kstProjectDay(now = new Date()) {
+  const kst = new Date(now.getTime() + 9 * 3600_000 - 4 * 3600_000)
+  return kst.toISOString().slice(0, 10)
+}
+function previousDay(day: string) {
+  const d = new Date(`${day}T12:00:00Z`)
+  d.setUTCDate(d.getUTCDate() - 1)
+  return d.toISOString().slice(0, 10)
+}
+// 참가자 화면은 로그인 없이 이름만으로 들어온다. 이름은 명단 이름이나 카카오톡 표시명과 정확히 같아야 한다.
+async function findParticipant(body: Body) {
+  const strip = (v: string) => v.replace(/\s+/g, '').replace(/\(.*?\)/g, '')
+  const name = typeof body.name === 'string' ? strip(body.name).slice(0, 30) : ''
+  if (name.length < 2) throw new Error('이름을 두 글자 이상 입력해 주세요.')
+  const [people, aliases] = await Promise.all([
+    checked(admin.from('david_participants').select('id,kind,display_name,active').eq('active', true)),
+    checked(admin.from('david_aliases').select('alias,participant_id')),
+  ]) as [any[], any[]]
+  const ids = new Set<string>()
+  for (const p of people) if (strip(p.display_name) === name) ids.add(p.id)
+  if (!ids.size) for (const a of aliases) if (strip(a.alias) === name && people.some(p => p.id === a.participant_id)) ids.add(a.participant_id)
+  if (ids.size !== 1) throw new Error(ids.size ? '같은 이름이 여러 명이에요. 성까지 붙여서 입력해 주세요.' : '명단에서 이름을 찾지 못했어요. 성까지 붙여서 입력해 보세요.')
+  const id = [...ids][0]
+  return { person: people.find(p => p.id === id), people }
+}
+async function memberView(body: Body) {
+  const { person, people } = await findParticipant(body)
+  const [checks, messages] = await Promise.all([
+    checked(admin.from('david_checks').select('participant_id,day,qt_done,exercise_done,confirmed,self_qt,self_exercise')),
+    checked(admin.from('david_messages').select('participant_id,assigned_date,media_kind').eq('participant_id', person.id)),
+  ]) as [any[], any[]]
+  // 순위에는 관리자가 확정한 말씀·운동만 센다.
+  const board = people.map(p => {
+    const mine = checks.filter(c => c.participant_id === p.id && c.confirmed)
+    const qt = mine.filter(c => c.qt_done).length, exercise = mine.filter(c => c.exercise_done).length
+    return { name: p.display_name, kind: p.kind, qt, exercise, total: qt + exercise, me: p.id === person.id }
+  }).sort((a, b) => b.total - a.total || b.exercise - a.exercise || a.name.localeCompare(b.name, 'ko'))
+  board.forEach((row: any, i) => { row.rank = i && board[i - 1].total === row.total ? (board[i - 1] as any).rank : i + 1 })
+  const days = checks.filter(c => c.participant_id === person.id).map(c => ({ date: c.day, confirmed: c.confirmed, qtDone: c.qt_done, exerciseDone: c.exercise_done, selfQt: c.self_qt, selfExercise: c.self_exercise }))
+  const posts = messages.map(m => ({ date: m.assigned_date, mediaKind: m.media_kind }))
+  return { name: person.display_name, kind: person.kind, today: kstProjectDay(), days, posts, board }
+}
+async function memberCheck(body: Body) {
+  const { person } = await findParticipant(body)
+  const today = kstProjectDay()
+  if (!validDay(body.date) || (body.date !== today && body.date !== previousDay(today))) throw new Error('오늘과 어제 기록만 직접 체크할 수 있어요.')
+  if (typeof body.selfQt !== 'boolean' || typeof body.selfExercise !== 'boolean') throw new Error('체크 값이 올바르지 않습니다.')
+  const { data: existing } = await admin.from('david_checks').select('confirmed').eq('participant_id', person.id).eq('day', body.date).maybeSingle()
+  if (existing?.confirmed) throw new Error('이미 선생님이 확인한 날이에요.')
+  const patch = { self_qt: body.selfQt, self_exercise: body.selfExercise, self_at: new Date().toISOString() }
+  if (existing) await checked(admin.from('david_checks').update(patch).eq('participant_id', person.id).eq('day', body.date))
+  else await checked(admin.from('david_checks').insert({ participant_id: person.id, day: body.date, confirmed: false, updated_by: managerId, ...patch }))
+  return { ok: true }
+}
+
 Deno.serve(async req => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: headers(req.headers.get('origin')) })
   if (req.method !== 'POST') return send(req, { error: 'POST 요청만 허용됩니다.' }, 405)
   try {
-    await authorized(req)
     const body = await req.json() as Body
     const action = String(body.action ?? '')
+    if (action === 'member-view') return send(req, await memberView(body))
+    if (action === 'member-check') return send(req, await memberCheck(body))
+    await authorized(req)
     const result = action === 'dashboard' ? await dashboard()
       : action === 'import' ? await importMessages(body)
       : action === 'save-check' ? await saveCheck(body)
