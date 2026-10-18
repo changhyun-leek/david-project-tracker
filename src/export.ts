@@ -31,6 +31,7 @@ export function buildWorkbook(data: Dashboard): Uint8Array {
   const summary: Cell[][] = [['이름', '구분', '완료일', '말씀 확인일', '운동 확인일', '게시일', '완료율(%)']]
   const daily: Cell[][] = [['날짜', '이름', '구분', '상태', '말씀 확인', '운동 확인', '게시물 수', '관리자 메모', '마지막 수정']]
   const evidence: Cell[][] = [['적용 날짜', '게시 시각', '이름', '톡방', '종류', '표시 내용', '연결 상태']]
+  const scores: { name: string; kind: string; total: number }[] = []
   for (const p of data.participants.filter(p => p.active)) {
     let completed = 0, qt = 0, exercise = 0, posted = 0
     for (const date of dates) {
@@ -45,12 +46,17 @@ export function buildWorkbook(data: Dashboard): Uint8Array {
       daily.push([date, p.name, p.kind === 'student' ? '학생' : '교사', statusLabel(state, date), check?.qtDone ? '예' : '아니요', check?.exerciseDone ? '예' : '아니요', count, raw?.note ?? '', raw?.updatedAt ?? ''])
     }
     summary.push([p.name, p.kind === 'student' ? '학생' : '교사', completed, qt, exercise, posted, Math.round(completed / 28 * 1000) / 10])
+    scores.push({ name: p.name, kind: p.kind, total: qt + exercise })
   }
   for (const m of data.messages) {
     const person = data.participants.find(p => p.id === m.participantId)
     evidence.push([m.assignedDate, m.sentAt, person?.name ?? m.sender, m.room, { photo: '사진 표시', video: '동영상 표시', text: '텍스트' }[m.mediaKind], m.excerpt, person ? '연결됨' : '이름 확인 필요'])
   }
-  return workbookBytes([{ name: '참가자 요약', rows: summary }, { name: '28일 기록', rows: daily }, { name: '게시물 확인 내역', rows: evidence }])
+  // 총합계: 확정된 말씀·운동을 각 1점(둘 다 하면 그날 2점). 교사 다음 한 줄 띄우고 학생.
+  const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, 'ko')
+  const teachers = scores.filter(s => s.kind === 'teacher').sort(byName), students = scores.filter(s => s.kind !== 'teacher').sort(byName)
+  const total: Cell[][] = [['', '총합계'], ...teachers.map(s => [s.name, s.total]), ...(teachers.length && students.length ? [['', '']] : []), ...students.map(s => [s.name, s.total])]
+  return workbookBytes([{ name: '참가자 요약', rows: summary }, { name: '28일 기록', rows: daily }, { name: '게시물 확인 내역', rows: evidence }, { name: '총합계', rows: total }])
 }
 
 export async function downloadExcel(data: Dashboard): Promise<void> {

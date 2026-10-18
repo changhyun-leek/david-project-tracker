@@ -4,3 +4,4 @@ dist/
 .env.local
 *.tsbuildinfo
 private/
+supabase/.temp/

@@ -4,7 +4,7 @@ import { buildWorkbook } from './export'
 import type { Dashboard } from './model'
 
 describe('Excel export', () => {
-  it('creates three readable worksheets with student and teacher progress', () => {
+  it('creates four readable worksheets with student and teacher progress', () => {
     const data: Dashboard = {
       participants: [{ id: '1', kind: 'student', sourceId: 'a', name: '학생가', active: true }, { id: '2', kind: 'teacher', sourceId: 'b', name: '교사가', active: true }],
       aliases: [],
@@ -12,7 +12,7 @@ describe('Excel export', () => {
       checks: [{ participantId: '1', date: '2026-10-04', qtDone: true, exerciseDone: true, note: '확인' }], catalog: [],
     }
     const files = unzipSync(buildWorkbook(data))
-    expect(Object.keys(files).filter(p => p.startsWith('xl/worksheets/sheet'))).toHaveLength(3)
+    expect(Object.keys(files).filter(p => p.startsWith('xl/worksheets/sheet'))).toHaveLength(4)
     const summary = strFromU8(files['xl/worksheets/sheet1.xml'])
     expect(summary).toContain('학생가')
     expect(summary).toContain('교사가')
@@ -20,5 +20,8 @@ describe('Excel export', () => {
     const daily = strFromU8(files['xl/worksheets/sheet2.xml'])
     expect(daily).toContain('2026-10-04')
     expect(daily).toContain('완료')
+    const total = strFromU8(files['xl/worksheets/sheet4.xml'])
+    expect(total).toContain('총합계')
+    expect(total).toMatch(/학생가<\/t><\/is><\/c><c r="B\d+"><v>2<\/v>/)
   })
 })
