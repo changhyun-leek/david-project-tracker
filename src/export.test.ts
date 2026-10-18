@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { strFromU8, unzipSync } from 'fflate'
-import { buildWorkbook } from './export'
+import { buildTotalWorkbook, buildWorkbook } from './export'
 import type { Dashboard } from './model'
 
 describe('Excel export', () => {
@@ -22,6 +22,9 @@ describe('Excel export', () => {
     expect(daily).toContain('완료')
     const total = strFromU8(files['xl/worksheets/sheet4.xml'])
     expect(total).toContain('총합계')
+    const only = unzipSync(buildTotalWorkbook(data))
+    expect(Object.keys(only).filter(p => p.startsWith('xl/worksheets/sheet'))).toHaveLength(1)
+    expect(strFromU8(only['xl/worksheets/sheet1.xml'])).toBe(total)
     expect(total).toMatch(/학생가<\/t><\/is><\/c><c r="B\d+"><v>2<\/v>/)
   })
 })
