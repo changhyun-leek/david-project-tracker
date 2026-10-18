@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { isConfirmed, status, suggestion } from './model'
+import { isConfirmed, pushupGoal, status, suggestion } from './model'
+
+describe('push-up routine', () => {
+  it('adds five push-ups each week', () => {
+    expect(['2026-10-04', '2026-10-10', '2026-10-11', '2026-10-18', '2026-10-24', '2026-10-25', '2026-10-31'].map(pushupGoal)).toEqual([20, 20, 25, 30, 30, 35, 35])
+    expect(pushupGoal('2026-11-01')).toBe(0)
+  })
+})
 
 describe('auto marks and confirmation', () => {
   const base = { participantId: 'p', date: '2026-10-05', qtDone: false, exerciseDone: false, note: '' }

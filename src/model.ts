@@ -9,6 +9,11 @@ export type MemberDay = { date: string; confirmed: boolean; qtDone: boolean; exe
 export type MemberView = { name: string; kind: Kind; today: string; days: MemberDay[]; posts: { date: string; mediaKind: MediaKind }[]; board: BoardRow[] }
 export type CatalogPerson = { id: string; name: string; kind: Kind }
 export type Dashboard = { participants: Participant[]; aliases: Alias[]; messages: Evidence[]; checks: DailyCheck[]; catalog: CatalogPerson[] }
+// 남자 운동 루틴: 주마다 푸시업 5개씩 늘린다 (10/4~10 20개, 11~17 25개, 18~24 30개, 25~31 35개).
+export function pushupGoal(date: string): number {
+  const index = dates.indexOf(date)
+  return index < 0 ? 0 : 20 + Math.floor(index / 7) * 5
+}
 export const START = '2026-10-04'
 export const END = '2026-10-31'
 export const dates = Array.from({ length: 28 }, (_, n) => {

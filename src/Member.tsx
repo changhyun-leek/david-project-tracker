@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { BookOpen, Check, Dumbbell, ExternalLink, LogOut, RefreshCw, Trophy } from 'lucide-react'
 import { api } from './api'
-import { dates, type MemberDay, type MemberView } from './model'
+import { dates, pushupGoal, type MemberDay, type MemberView } from './model'
 
 const KEY = 'david-member-name'
 const QT_URL = 'https://www.duranno.com/sena/qt.asp'
@@ -63,6 +63,7 @@ export function Member({ name, onLeave }: { name: string; onLeave: () => void })
         <button className={day === yesterday ? 'active' : ''} onClick={() => setTarget(yesterday)}>어제 · {dateLabel(yesterday)}</button>
       </div>
       {inProject ? <>
+        <div className="goal"><Dumbbell size={18} /><span>{day === today ? '오늘' : '어제'}의 운동</span><strong>푸시업 {pushupGoal(day)}개</strong></div>
         <div className="member-checks">
           <button className={qt ? 'checked' : ''} disabled={busy || locked} onClick={() => void toggle({ qt: !qt, ex })}><BookOpen size={22} /><span>말씀</span><b>{qt ? <><Check size={14} /> 했어요</> : '아직'}</b></button>
           <button className={ex ? 'checked' : ''} disabled={busy || locked} onClick={() => void toggle({ qt, ex: !ex })}><Dumbbell size={22} /><span>운동</span><b>{ex ? <><Check size={14} /> 했어요</> : '아직'}</b></button>
